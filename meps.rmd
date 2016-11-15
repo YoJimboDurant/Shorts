@@ -1,0 +1,485 @@
+---
+title: Analyzing MEPS data using R
+author: TBA
+output:
+  knitrBootstrap::bootstrap_document:
+  theme.chooser: TRUE
+  highlight.chooser: TRUE
+
+---
+
+#Analyzing MEPS data using R#
+
+#Objectives
+* Understand how to install and load packages into R
+* Load MEPS data into a data frame
+* Create a *survey* object from MEPS data frame
+* Create summary tables
+* Create summary graphics
+
+
+#Loading Packages
+To load MEPS data, we will use the foreign package, which allows R to read SAS transport files. The `install.packages` function only needs to be run once (to download the package from the internet and store it on your computer). Typically, this is done with the command `install.package("foreign")`. However, to make this example fully reproducible to any user, the code below checks if "foreign" and "survey" packages are installed, and if it is not, runs `install.packages("foreign")` and `install.packages("survey")`. 
+<br>
+<br>
+
+<div class="panel panel-info">
+  <div class="panel-heading">
+  <h3 class="panel-title">Installing and Loading Packages</h3>
+  </div>
+  <div class="panel-body">
+  <p>Packages are sets of R functions that are downloaded and installed into the R system. A library only needs to be installed once per R installation. However, the `library` function needs to be run every time you re-start your R session to load the package. Packages are tailor made to help perform certain statistical, graphical, or data tasks. Since R is used by many analysts, it is typical for only some packages to be loaded for each analysis.</p>
+  </div>
+</div>
+
+<br>
+
+
+```{r install packages, message=FALSE}
+# This checks if packages are installed and if not, installs the ones missing.
+# it can be slow but for full reproducibility, I include it.
+
+list.of.packages <- c("survey", "foreign", "downloader","ggplot2", "knitr", "pander",
+                      "dplyr")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+library(foreign)             # Run this every time you re-start R
+library(survey)
+```
+<br>
+<br>
+
+
+#Loading MEPS data
+
+##About data frames
+We will need to load the data from the MEPS into R. The data will be stored in a *data.frame* called `FYC2013`. Data frames are like tables of data with multiple columns and multiple column types. Information about data.frames can be found in the [R manual](https://cran.r-project.org/doc/manuals/r-release/R-intro.html#Data-frames). Roger Peng (Professor of Biostatistics at the Johns Hopkins Bloomberg School of Public Health) provides a concise review of data types which can be found on his YouTube site:
+<br>
+<br>
+[![Roger Peng Data Types](http://i3.ytimg.com/vi/5AQM-yUX9zg/hqdefault.jpg)](https://www.youtube.com/embed/5AQM-yUX9zg?list=PL7Tw2kQ2edvpNEGrU0cGKwmdDRKc5A6C4?t=1s "Introduction to Data Types")
+<br>
+<br>
+
+##Loading from Local Directory
+If you have manually downloaded and unzipped your MEPS data file to a local directory, you should locate it on your system. For instance, if you have the file located at "C:\\MEPS\\SASDATA\\h163.ssp" on a Windows system: 
+<br><br>
+```{r, echo=FALSE, fig.height=8}
+knitr::include_graphics("./images/option1mecs.png")
+```
+
+
+
+<br><br>
+
+The following code will load the data, using the foreign package function `read.xport`:
+
+```{r load from disk, eval=FALSE}
+FYC2013 = read.xport("C:/MEPS/SASDATA/h163.ssp")
+```
+<br>
+The object **FYC2013** is now loaded into R's memory as a data frame.  
+<br>
+<br>
+<div class="alert alert-dismissible alert-warning">
+  <button type="button" class="close" data-dismiss="alert">&times;</button>
+  <h4>Warning!</h4>
+  <p>Be aware the directory names need to be separated by a slash ("/") or a double backslash ("\\\\"). This is because the single backslash is almost universally used as an string escape character in computing</p>
+</div>
+<br>
+
+##Load data directly from website
+Preferably, data downloading tasks can be automated using R. This offers several advantages when:
+
+1. a large number of files need to be downloaded and,
+2. another researcher needs to verify which files were downloaded (and from where),
+3. data files might be updated periodically.
+
+```{r download, eval=TRUE}
+library(downloader)
+dir.create("./data/MEPS/", showWarnings = FALSE)
+destfile <- "./data/MEPS/h163ssp.zip"
+
+if(!file.exists(destfile))
+download.file("https://meps.ahrq.gov/mepsweb/data_files/pufs/h163ssp.zip",destfile)
+    
+unzipped_file = unzip(destfile, exdir="./data/MEPS")
+
+FYC2013 = read.xport(unzipped_file)
+```
+
+
+```{r include=FALSE}
+# load data for sake of argument now, assuming it is in "./data"
+FYC2013 = read.xport("./data/MEPS/h163.ssp")
+```
+
+
+#Using the Survey Package
+Functions available in survey package that will be demonstrated:
+
+* **svytotal**: population totals
+* **svymean**: proportions and means
+* **svyquantile**: quantiles (e.g. median)
+* **svyratio**: ratio statistics (e.g. percentage of total expenditures)
+* **svyby**: run other survey functions by group
+
+
+##Define Suvey Design Object
+The `svydesign` function specifies the primary sampling unit, the strata, and the sampling weights for the data frame. The function also allows for nested designs. 
+<br>
+```{r define object}
+mepsdsgn = svydesign(id = ~VARPSU, 
+                     strata = ~VARSTR, 
+                     weights = ~PERWT13F, 
+                     data = FYC2013, 
+                     nest=TRUE)  
+```
+<br>
+<br>
+We can check the class and structure of the object using the `class`, `summary` and `str` functions. Click on "output" to see results that should be displayed on your console:
+<br>
+
+```{r check, bootstrap.show.output=FALSE}
+class(mepsdsgn)   # check class =
+```
+<br>
+```{r check2, bootstrap.show.output=FALSE}
+summary(mepsdsgn) # check summary
+```
+<br>
+```{r check3, bootstrap.show.output=FALSE}
+str(mepsdsgn)     # check structure of object
+```
+<br>
+<br>
+
+##Expenses Per Person, by Source of Payment (Table 1):
+This is a partial recreation of Medical Expenditure Panel 2013 [Table 1](https://meps.ahrq.gov/data_stats/tables_compendia_hh_interactive.jsp?_SERVICE=MEPSSocket0&_PROGRAM=MEPSPGM.TC.SAS&File=HCFY2013&Table=HCFY2013%5FPLEXP%5F%40&VAR1=AGE&VAR2=SEX&VAR3=RACETH5C&VAR4=INSURCOV&VAR5=POVCAT13&VAR6=REGION&VAR7=HEALTH&VARO1=4+17+44+64&VARO2=1&VARO3=1&VARO4=1&VARO5=1&VARO6=1&VARO7=1&_Debug=)
+
+###Total population
+Total population = sum of survey weights (PERWT13F). We don't need to use a svy function here, since standard errors are not applicable to population control totals.
+
+```{r Tot Pop}
+sum(FYC2013$PERWT13F) 
+```
+
+###Total expenses
+To use the svytotal function, we can use the '$' notation to indicate that we want to use data set FYC2013 and variable TOTEXP13.
+
+```{r}
+survey::svytotal(FYC2013$TOTEXP13, design = mepsdsgn)  
+```
+<br>
+<br>
+
+Or we can use the formula notation '~', to tell R that we want to look in the design object mepsdsgn (in which we defined data set FYC2013) to find the variable TOTEXP13.
+
+```{r}
+svytotal(~TOTEXP13,design = mepsdsgn) 
+```
+
+###Percent with expense (calculating new variable)
+To calculate the percent of people with any expense, first create a new indicator variable for persons with an expense.
+```{r}
+FYC2013$any_expense = (FYC2013$TOTEXP13 > 0)*1
+
+head(FYC2013$any_expense) # head return first rows of data
+```
+<br>
+<br>
+<br>
+<div class="panel panel-danger">
+  <div class="panel-heading">
+  <h4 class="panel-title">Adding data after defining design produces an error!</h3>
+  </div>
+  <div class="panel-body">
+   <p>If we try to run svymean, we will get an error, since we added a variable to the data set after defining the survey design object, mepsdsgn. The following will create an error:</p>
+  </div>
+</div>
+<br>
+```{r, eval=FALSE}
+svymean(~any_expense, design = mepsdsgn) 
+```
+<br>
+We need to re-run the `svydesign` function to redefine mepsdsgn to include the data set with the new variable:
+
+```{r}
+mepsdsgn = svydesign(id = ~VARPSU, 
+                     strata = ~VARSTR, 
+                     weights = ~PERWT13F, 
+                     data = FYC2013, 
+                     nest=TRUE)
+svymean(~any_expense,design = mepsdsgn) 
+```
+
+
+###Mean and median, per person with an expense
+To get expenses per person with an expense, we want to limit the data set to persons that have an expense (i.e. any_expense == 1), using the `subset` function.
+<br>
+<br>
+
+```{r svymean}
+svymean(~TOTEXP13, design = subset(mepsdsgn,any_expense==1))
+```
+<br>
+<br>
+
+```{r svymedian}
+svyquantile(~TOTEXP13, design = subset(mepsdsgn,any_expense==1),quantiles = 0.5) 
+```
+<br>
+<br>
+
+###Distribution of expenses by source of payment
+For percent of total, we need to use the `svyratio` function, and specify the numerator and denominator. First, we'll estimate the percent for out-of-pocket payments (TOTSLF13).
+<br>
+<br>
+
+```{r svyratio}
+svyratio(~TOTSLF13, denominator = ~TOTEXP13, design = mepsdsgn)
+```
+<br>
+<br>
+We can also calculate percentages for multiple variables at one time, using a '+' sign in the formula notation.
+
+```{r svyratio2}
+svyratio(~TOTSLF13 + TOTPTR13 + TOTMCR13 + TOTMCD13, 
+    denominator = ~TOTEXP13, 
+    design = mepsdsgn)
+```
+<br>
+<br>
+
+Before estimating percentages for 'Other' insurance, we need to adjust this variable to match the online table: Other = VA + worker's comp + other sources. Previously, we did this by adding new variables to the data set FYC2013, and then re-defining the design object mepsdsgn. But, we can streamline this process by using the `update` function to make changes to mepsdsgn directly, without changing the data set FYC2013.
+
+```{r}
+mepsdsgn = update(mepsdsgn, tototh13 = TOTVA13 + TOTWCP13 + TOTOTH13)
+svyratio(~tototh13, denominator = ~TOTEXP13, design = mepsdsgn)
+```
+
+##Percentage Distribution by Type of Service (STAT BRIEF #491)
+
+Now we will re-create the data table for Figure 1 in [Stat brief #491: "National Health Care Expenses in the U.S. Civilian Noninstitutionalized Population, Distributions by Type of Service and Source of Payment, 2013" by Marie Stagnitti](https://meps.ahrq.gov/data_files/publications/st491/stat491.shtml).
+
+###Update design
+To get ambulatory (OB+OP) and home health/other expenditures, we need to add variables to the **mepsdsgn** object.
+
+```{r stat491_1}
+mepsdsgn = update(mepsdsgn, 
+                     ambexp13 = OBVEXP13 + OPTEXP13 + ERTEXP13,
+                     hhexp13  = HHAEXP13 + HHNEXP13 + VISEXP13 + OTHEXP13)
+
+```
+
+###svyratio 
+Up until now, we've been running survey functions to estimate means, totals, etc., but we've only been printing that information to the R console, rather than storing those estimates. Here, we create the variable **pct_TOS** to store the estimates from the `svyratio` function, which is calculating the percentage distribution of expenditures by type of service.
+
+```{r stat491_2}
+pct_TOS = svyratio(~IPTEXP13 + ambexp13 + RXEXP13 + DVTEXP13 + hhexp13, 
+                     denominator = ~TOTEXP13, 
+                     design = mepsdsgn)
+```
+
+Because we are storing estimates in the variable pct_TOS, we have to ask R to specifically `print` the results if we want to view them.
+
+```{r stat491_3}
+print(pct_TOS)
+```
+<br>
+Now we can do the same thing by age group (< 65, and 65+), using the `subset` function.
+<br>
+```{r stat493_4}
+pct_TOS_lt65 = svyratio(~IPTEXP13 + ambexp13 + RXEXP13 + DVTEXP13 + hhexp13, 
+                        denominator = ~TOTEXP13, 
+                        design = subset(mepsdsgn,AGELAST < 65))
+  
+pct_TOS_ge65 = svyratio(~IPTEXP13 + ambexp13 + RXEXP13 + DVTEXP13 + hhexp13, 
+                        denominator = ~TOTEXP13, 
+                        design = subset(mepsdsgn,AGELAST >= 65))
+```
+<br>
+<br>
+
+###Create Output Table
+Now we want to extract the coefficient estimates and combine them into a table. To do that, we can use the function `coef` to get the coefficients from the svyratio results, and then combine them into a matrix using `cbind`.
+
+```{r stat493_5}
+pct_matrix = cbind(coef(pct_TOS),
+                   coef(pct_TOS_lt65),
+                   coef(pct_TOS_ge65))*100
+print(pct_matrix)
+```
+<br>
+<br>
+
+To clean it up a bit, we can change the row and column names:
+
+```{r stat493_6}
+rownames(pct_matrix) = c("Hospital IP",
+                        "Ambulatory",
+                        "RX",
+                        "Dental",
+                        "HH and Other")
+colnames(pct_matrix) = c("Total","<65 years","65+ years")
+print(pct_matrix)
+```
+
+####Output Table to .csv file
+If we are happy with our table, now we can export it to a .csv file, to manipulate further in a spreadsheet.
+```{r why, eval=FALSE}
+write.csv(pct_matrix,file = "C:/MEPS/figure1.csv")
+```
+
+####Output Table using knitr package
+
+If you are using RMarkdown (like this webpage was created in), you can use the **knitr** function `kable` to render formatted tables.
+
+```{r why2}
+ if (!"knitr" %in% installed.packages()) install.packages("knitr")
+knitr::kable(pct_matrix, digits=1)
+```
+<br>
+<br>
+
+###Graphics - Barplot Example
+The default for the function barplot is to create a stacked bar plot if we give it a matrix, where each bar represents a column.
+```{r barplot}
+barplot(pct_matrix) 
+```
+<br>
+<br>
+
+In order to switch the bar chart, so that the bars are type of service, not age group, we can use the transpose function `t` to pivot the matrix.
+```{r barplot2}
+print(t(pct_matrix))
+barplot(t(pct_matrix))
+```
+<br>
+<br>
+
+To change the bars to be side by side, use the **'beside = TRUE'** option
+```{r barplot3}
+barplot(t(pct_matrix), beside = TRUE) 
+```
+<br>
+<br>
+
+We can also specify colors for the pars, add a label to the y-axis, add a legend, and add data labels on top of the bars.
+```{r barplot4}
+bp <- barplot(t(pct_matrix),beside=TRUE,
+                col = c("blue","yellow","magenta"),
+                ylab = "Percentage",
+                legend=T)
+
+text(x = bp, y = t(pct_matrix)+2,
+     labels = round(t(pct_matrix)),
+     xpd=T,col="blue",font=2)
+```
+
+#Saving your data
+We've done all of this hard work to load in the MEPS files and calculate estimates, so how can we save it to use next time?
+We can just save a single item, for instance, the MEPS FYC 2013 data:
+<br>
+<br>
+```{r savit, eval=FALSE}
+save(FYC2013,file = "C:/MEPS/SASDATA/PUF_h163.RData")
+```
+<br>
+<br>
+Or we can save multiple items, like pct_matrix and the mepsdsgn object.
+```{r savitall, eval=FALSE}
+save(mepsdsgn,pct_matrix,file = "C:/MEPS/SASDATA/PUF_and_table.RData")
+```
+<br>
+<br>
+Once the .Rdata file is saved, it can be re-loaded in a new R session using the following code:
+```{r load, eval=FALSE}
+load(file = "C:/MEPS/SASDATA/PUF_h163.RData")
+```
+
+#Bonus Material
+##svyby
+The `svyby` function can be used to calculate estimates for all levels of a subgroup. For instance, previously we calculated the percent distribution of expenditures by type of service separately for persons aged 65 and older and those under age 65, by using the subset function.
+<br>
+<br>
+
+```{r svyby_bonus}
+svyratio(~IPTEXP13+ambexp13, 
+              denominator = ~TOTEXP13, 
+              design = subset(mepsdsgn,AGELAST >= 65))
+```
+<br>
+<br>
+
+However, we can also get estimates for persons 65+ and <65 simultaneously by using the svyby function, which works with other svy functions (e.g. `svymean`, `svytotal`, `svyratio`) using the **FUN =  option**. Additionally, the packages **dplyr** and **pander** are used to illustrate reformatting and output options:
+
+```{r svyby_bonus2, message=FALSE}
+ if (!"dplyr" %in% installed.packages()) install.packages("dplyr")
+ if (!"pander" %in% installed.packages()) install.packages("pander")
+library(dplyr)
+library(pander)
+svyby(~IPTEXP13+ambexp13, 
+        denominator = ~TOTEXP13, 
+        by = ~(AGELAST >= 65),
+        design = mepsdsgn,
+        FUN = svyratio) %>%
+  mutate(`Hospital Inpatient ` = signif(`IPTEXP13/TOTEXP13`,2),
+         `se.IPT` = signif(`se.IPTEXP13/TOTEXP13`,2),
+         `Outpatient Amb.` = signif(`ambexp13/TOTEXP13`,2),
+         `se.amb` = signif(`se.ambexp13/TOTEXP13`,2)) %>%
+  transmute(`65 or Older` = `AGELAST >= 65`,
+            `Hospital Inpatient` = paste0(.$`Hospital Inpatient`, 
+                                           "(", .$`se.IPT`, ")"),
+            `Ambliatory Svcs.` = paste0(.$`Outpatient Amb.`, 
+                                           "(", .$`se.amb`, ")"))%>%
+  pander(caption="Survey Table Example", digits=2, split.tables =Inf)
+
+```
+<br>
+
+##ggplot2
+**ggplot2** is the package that supports the _Grammar of Graphics_ by Leland Wilkinson. While requiring learning new syntax, it is well worth the effort as **ggplot** is quite powerful and flexible. 
+
+Roger Peng has 2 lectures on YouTube related to ggplot2:
+
+
+
+
+<br>
+<br>
+
+####ggplot2 Introduction Lecture 1
+[![Roger Peng ggplot lecture 1](http://i3.ytimg.com/vi/HeqHMM4ziXA/hqdefault.jpg)](https://www.youtube.com/watch?v=HeqHMM4ziXA "Plotting with ggplot lecture 1")
+<br>
+<br>
+
+####ggplot2 Introduction Lecture 2
+[![Roger Peng ggplot lecture 2](http://i3.ytimg.com/vi/n8kYa9vu1l8/hqdefault.jpg)](https://www.youtube.com/watch?v=n8kYa9vu1l8 "Plotting with ggplot lecture 2")
+<br>
+<br>
+```{r ggplot2_example}
+library(ggplot2)
+library(reshape2)
+
+long = melt(pct_matrix)
+
+ggplot(data = long,mapping = aes(x=Var1,y=value,fill=Var2)) +
+  geom_bar(position = "dodge",
+           stat="identity") +
+  scale_fill_manual(values = c(rgb(0,115,189,maxColorValue = 255),
+                               rgb(255,197,0,maxColorValue = 255),
+                               rgb(99,16,99,maxColorValue=255)))+
+  labs(y = "Percentage",x="") + 
+  geom_text(aes(x=Var1,y=value,ymax=value,label=round(value)),
+            position = position_dodge(width = 0.9),vjust = -0.25,
+            colour = rgb(0,0,173,maxColorValue = 255),
+            fontface = "bold")+
+  theme_classic()+
+  theme(legend.position="top",
+        legend.title = element_blank(),
+        axis.line.x = element_line(colour="black"),
+        axis.line.y = element_line(colour="black"),
+        text = element_text(colour=rgb(0,0,173,maxColorValue = 255),
+                            face="bold"))+
+  scale_y_continuous(expand = c(0,0),limits=c(0,max(long$value)+2))

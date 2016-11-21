@@ -1,0 +1,205 @@
+---
+title: Analyzing NHANES data using R
+author: Jim Durant
+output:
+  knitrBootstrap::bootstrap_document:
+  theme.chooser: TRUE
+  highlight.chooser: TRUE
+---
+#NHANES Data Analysis Example#
+
+#Introduction
+This short tutorial assumes that the user has some prior knowledge of R and Rstudio. If you are not familiar with R, there are number of resources in CDC/ATSDR R user group's website to help you get started. Good resources to keep in mind are:
+
+* [Survey Package Homepage](http://r-survey.r-forge.r-project.org/survey/)
+* [adfree](http://www.asdfree.com/)
+
+# NHANES Data Analysis
+## Install and load required packages
+The first step First we will load the packages needed to perform this script. If you have not installed them see:
+
+```{r installpacks, eval = FALSE}
+install.packages(c("survey", "downloader", "foriegn", "XML", "dplyr", "magrittr", "ggplot2"))
+```
+
+
+```{r download example, include=FALSE}
+library(downloader)                         
+library(foreign)
+library(survey)
+library(XML)
+library(ggplot2)
+library(readr)
+library(stringr)
+library(magrittr)
+library(dplyr)
+```
+
+```{r libs, eval=FALSE}
+library(downloader)                         
+library(foreign)
+library(survey)
+library(readr)
+library(ggplot2)
+library(magrittr)
+library(dplyr)
+```
+
+## Basic Workflow
+
+### Download raw survey data from [CDC Website](https://wwwn.cdc.gov/Nchs/Nhanes/Search/Nhanes_continuous.aspx). Main pages for continious NHANES data are:
+
+* [Demographics Variables and Sample Weights](https://wwwn.cdc.gov/nchs/nhanes/Search/DataPage.aspx?Component=Demographics) (almost always needed for any analysis)
+* [Dietary Interview](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Dietary)
+* [Labratory Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Laboratory) 
+* [Questionaire Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Questionnaire)
+
+These files are stored as SAS XPORT files on CDC's internet site. Normal people would click on these individually and download them into a directory. We will show a way that R can be used to rapidly expedite the downloading of these files. 
+
+
+<div class="alert alert-dismissible alert-warning">
+  <button type="button" class="close" data-dismiss="alert">&times;</button>
+  <h4>Tip!</h4>
+  <p> Using R to download files will help make your analysis easier to reproduce.</p>
+</div>
+
+
+#### Identify Files
+
+```{r id files}
+demoDataFiles <- read_lines("https://wwwn.cdc.gov/nchs/nhanes/Search/DataPage.aspx?Component=Demographics") %>%
+  XML::htmlParse(.) %>%
+  XML::readHTMLTable(.)
+
+knitr::kable(demoDataFiles[[2]])
+```
+
+We would like to select all demographics surveys in this dataset and download to our local computer. 
+
+First, make a directory:
+```{r createDir}
+dataDir <- paste0("./data/nhanes/", format(Sys.Date(), "%Y%m%d"))
+dir.create(dataDir, showWarnings = FALSE, recursive = TRUE)
+```
+
+<div class="alert alert-dismissible alert-warning">
+  <button type="button" class="close" data-dismiss="alert">&times;</button>
+  <h4>Tip!</h4>
+  <p> Why did I create a system date? If you noticed that in the XPT files, there are revision dates. If the data are updated and previous versions of the data are unavailable, then you might not be able to guarentee that your results are reproducible because the data may have changed. Best practice is to maintain an archive of original data, and create a copy of working data that is further manipulated. 
+</p>
+</div>
+
+```{r idFiles}
+idFiles <- grep("XPT", demoDataFiles[[2]][,4]) %>%
+  demoDataFiles[[2]][.,] %T>%
+  knitr::kable(.)
+```
+
+#### Download the files
+
+The SAS XPT Files
+```{r downloadFiles}
+serverFiles <- gsub( " .*$", "", idFiles$`Data File`) %>%
+  paste0(., ".XPT") %>% 
+  paste("https://wwwn.cdc.gov/Nchs/Nhanes", idFiles$Years, .,  sep="/")
+
+sapply(serverFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"),
+                                              method="curl", extra="-k"))
+```
+
+and the Documentation (we will in fact be using these files later):
+
+```{r Download Docs}
+docFiles <- gsub("XPT$", "htm", serverFiles)
+
+sapply(docFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"),
+                                              method="curl", extra="-k"))
+```
+
+
+### Import the XPT Files and Decode using Data
+
+```{r foreign Import}
+localFiles <- list.files(dataDir, pattern = "[.]XPT", full.names = TRUE)
+demoData <- lapply(localFiles, function(x) foreign::read.xport(x))
+names(demoData) <- localFiles
+```
+
+I _HATE_ recoding variables in R.  So I create 2 loops. The first loop goes through each survey set. The second loop extracts the tables that have factor codes (NHANES documentation so far has consistently indicated continious ranges with number values separated by "to"). The function then refactors the variable with the appropriate code book names.
+
+```{r recode,  bootstrap.show.output=FALSE}
+xDocs <- gsub("XPT$", "htm", localFiles) 
+
+factorTables <- sapply(seq_along(xDocs), function(xDoci){
+  
+  
+  x <- XML::htmlParse(xDocs[[xDoci]]) %>%
+    XML::readHTMLTable(.)
+  
+  x <- x[sapply(x, function(xi) "Code or Value" %in% names(xi))]
+
+  factorVars <- sapply(seq_along(x), function(i) {
+    !grepl("to", x[[i]]$`Code or Value`[[1]])
+    })
+
+  factorVars <- factorVars[!sapply(factorVars, is.null)]
+
+FactTables <- sapply(seq_along(factorVars), function(i){
+    if(!is.null(factorVars[[i]])){
+    if(factorVars[[i]] == TRUE){
+      #print(i)
+      xTable <- x[[i]]
+      #browser()
+      is.na(xTable$`Code or Value`) <- xTable$`Code or Value` == "." 
+      factorLevels <- xTable$`Value Description`[!is.na(xTable$`Code or Value`)]
+      factorLevels <- factorLevels[as.numeric(as.character(xTable$Count[!is.na(xTable$`Code or Value`)])) > 0 ]                                           
+      demoData[[xDoci]][[i+1]] <- factor(demoData[[xDoci]][[i+1]], labels = factorLevels)
+      table(demoData[[xDoci]][[i+1]])
+
+    }
+    }
+  
+  })
+return(FactTables)
+})
+
+```
+
+
+
+```{r prep}
+factorTables <- lapply(seq_along(factorTables), function(i){
+  factorTables[[i]][!sapply(factorTables[[i]], is.null)]
+}) 
+
+names(factorTables) <- basename(localFiles)
+
+pander::pander(factorTables[[2]][[4]])
+```
+
+
+<div align="center" class="embed-responsive embed-responsive-16by9">
+<video autoplay loop class="embed-responsive-item">
+<source src=https://www.youtube.com/watch?v=gsX4I133Zmc type=video/mp4>
+</video>
+</div>
+
+
+
+<div class="panel panel-danger">
+  <div class="panel-heading">
+  <h3 class="panel-title">Panel danger</h3>
+  </div>
+  <div class="panel-body">
+    Panel content
+  </div>
+</div>
+
+<div class="panel panel-info">
+  <div class="panel-heading">
+  <h3 class="panel-title">Panel info</h3>
+  </div>
+  <div class="panel-body">
+    Panel content
+  </div>
+</div>

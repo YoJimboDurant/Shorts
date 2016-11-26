@@ -39,8 +39,10 @@ library(dplyr)
 library(downloader)                         
 library(foreign)
 library(survey)
-library(readr)
+library(XML)
 library(ggplot2)
+library(readr)
+library(stringr)
 library(magrittr)
 library(dplyr)
 ```
@@ -103,21 +105,28 @@ serverFiles <- gsub( " .*$", "", idFiles$`Data File`) %>%
   paste0(., ".XPT") %>% 
   paste("https://wwwn.cdc.gov/Nchs/Nhanes", idFiles$Years, .,  sep="/")
 
-sapply(serverFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"),
-                                              method="curl", extra="-k"))
+if(Sys.info()['sysname'] !="Windows"){
+  sapply(serverFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"), method="curl", extra="-k"))
+} else {
+  sapply(serverFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"), mode="wb"))
+}
 ```
 
-and the Documentation (we will in fact be using these files later):
+and the Documentation (we not only read these files, but since they are HTML we can extract the code books from them using R):
 
 ```{r Download Docs}
 docFiles <- gsub("XPT$", "htm", serverFiles)
 
-sapply(docFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"),
-                                              method="curl", extra="-k"))
+if(Sys.info()['sysname'] !="Windows"){
+sapply(docFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"), method="curl", extra="-k"))
+}else{
+sapply(docFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"), mode= "wb"))
+}
 ```
 
 
 ### Import the XPT Files and Decode using Data
+Next, we will make a list of files that we have downloaded. Then we will use `lapply` to create a  loop that will read these files using `read.xport` into a list of data frames that we named demoData.
 
 ```{r foreign Import}
 localFiles <- list.files(dataDir, pattern = "[.]XPT", full.names = TRUE)
@@ -165,7 +174,36 @@ return(FactTables)
 
 ```
 
-I need to figure out how to add table names
+I need to figure out how to add table names. The are stored as vector names in the data frames as their abbreviated names. Most folks get used to these after a while and know what they mean. I am not "most folks." 
+
+```{r get names}
+VariableNamesList <- 
+  
+  lapply(seq_along(xDocs), function(xDoci){
+    
+    xD = xDocs[[xDoci]]
+    xDatNames <- demoData[[xDoci]] %>% names(.)
+    
+   x <- XML::htmlParse(xD) %>%
+     readHTMLList(.)
+   xi <- which(sapply(x, length) == length(xDatNames))
+   
+   #check all vars in name
+   checkVars <- 
+     sapply(seq_along(xDatNames), 
+          function(vi) grepl(xDatNames[[vi]], 
+                             paste(x[[xi]], collapse = " "))) %>%
+     all(.) &
+   length(xDatNames) == length(x[[xi]])
+   names(demoData[[xDoci]]) <- x[[xi]]
+   return(data.frame(abbr = xDatNames, full = x[[xi]]))
+  })
+
+
+```
+
+
+
 
 
 ```{r prep}
@@ -204,3 +242,4 @@ pander::pander(factorTables[[2]][[4]])
     Panel content
   </div>
 </div>
+

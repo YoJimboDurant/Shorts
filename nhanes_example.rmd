@@ -16,27 +16,22 @@ This short tutorial assumes that the user has some prior knowledge of R and Rstu
 
 # NHANES Data Analysis
 ## Install and load required packages
-The first step First we will load the packages needed to perform this script. If you have not installed them see:
+First we will install and load the packages needed to perform this script.
+This snippet checks to see if you have the packages needed installed, and
+installs any missing packages:
 
-```{r installpacks, eval = FALSE}
-install.packages(c("survey", "downloader", "foriegn", "XML", "dplyr", "magrittr", "ggplot2"))
+```{r installpacks, eval = TRUE}
+pack_list <- c("survey", "downloader", "foreign", "XML", "dplyr", "magrittr",
+"ggplot2", "readr", "stringr")
+
+install.packages(pack_list[!pack_list %in% installed.packages()])
 ```
+It is normally not necissary to re-install packages in a given R installation.
 
 
-```{r download example, include=FALSE}
-library(downloader)                         
-library(foreign)
-library(survey)
-library(XML)
-library(ggplot2)
-library(readr)
-library(stringr)
-library(magrittr)
-library(dplyr)
-```
-
+Next, we need to load the packages into memory.
 ```{r libs, eval=FALSE}
-library(downloader)                         
+library(downloader)
 library(foreign)
 library(survey)
 library(XML)
@@ -53,10 +48,10 @@ library(dplyr)
 
 * [Demographics Variables and Sample Weights](https://wwwn.cdc.gov/nchs/nhanes/Search/DataPage.aspx?Component=Demographics) (almost always needed for any analysis)
 * [Dietary Interview](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Dietary)
-* [Labratory Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Laboratory) 
+* [Labratory Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Laboratory)
 * [Questionaire Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Questionnaire)
 
-These files are stored as SAS XPORT files on CDC's internet site. Normal people would click on these individually and download them into a directory. We will show a way that R can be used to rapidly expedite the downloading of these files. 
+These files are stored as SAS XPORT files on CDC's internet site. R can be used to rapidly expedite the downloading of these files.
 
 
 <div class="alert alert-dismissible alert-warning">
@@ -76,7 +71,7 @@ demoDataFiles <- read_lines("https://wwwn.cdc.gov/nchs/nhanes/Search/DataPage.as
 knitr::kable(demoDataFiles[[2]])
 ```
 
-We would like to select all demographics surveys in this dataset and download to our local computer. 
+We would like to select all demographics surveys in this dataset and download to our local computer.
 
 First, make a directory:
 ```{r createDir}
@@ -87,7 +82,7 @@ dir.create(dataDir, showWarnings = FALSE, recursive = TRUE)
 <div class="alert alert-dismissible alert-warning">
   <button type="button" class="close" data-dismiss="alert">&times;</button>
   <h4>Tip!</h4>
-  <p> Why did I create a system date? If you noticed that in the XPT files, there are revision dates. If the data are updated and previous versions of the data are unavailable, then you might not be able to guarentee that your results are reproducible because the data may have changed. Best practice is to maintain an archive of original data, and create a copy of working data that is further manipulated. 
+  <p> Why did I create a system date? If you noticed that in the XPT files, there are revision dates. If the data are updated and previous versions of the data are unavailable, then you might not be able to guarentee that your results are reproducible because the data may have changed. Best practice is to maintain an archive of original data, and create a copy of working data that is further manipulated.
 </p>
 </div>
 
@@ -101,9 +96,10 @@ idFiles <- grep("XPT", demoDataFiles[[2]][,4]) %>%
 
 The SAS XPT Files
 ```{r downloadFiles}
-serverFiles <- gsub( " .*$", "", idFiles$`Data File`) %>%
-  paste0(., ".XPT") %>% 
+serverFiles <- gsub( " .*$", "", idFile$`Data File`) %>%
+  paste0(., ".XPT") %>%
   paste("https://wwwn.cdc.gov/Nchs/Nhanes", idFiles$Years, .,  sep="/")
+
 
 if(Sys.info()['sysname'] !="Windows"){
   sapply(serverFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"), method="curl", extra="-k"))
@@ -137,14 +133,14 @@ names(demoData) <- localFiles
 I _HATE_ recoding variables in R.  So I create 2 loops. The first loop goes through each survey set. The second loop extracts the tables that have factor codes (NHANES documentation so far has consistently indicated continious ranges with number values separated by "to"). The function then refactors the variable with the appropriate code book names.
 
 ```{r recode,  bootstrap.show.output=FALSE}
-xDocs <- gsub("XPT$", "htm", localFiles) 
+xDocs <- gsub("XPT$", "htm", localFiles)
 
 factorTables <- sapply(seq_along(xDocs), function(xDoci){
-  
-  
+
+
   x <- XML::htmlParse(xDocs[[xDoci]]) %>%
     XML::readHTMLTable(.)
-  
+
   x <- x[sapply(x, function(xi) "Code or Value" %in% names(xi))]
 
   factorVars <- sapply(seq_along(x), function(i) {
@@ -159,39 +155,39 @@ FactTables <- sapply(seq_along(factorVars), function(i){
       #print(i)
       xTable <- x[[i]]
       #browser()
-      is.na(xTable$`Code or Value`) <- xTable$`Code or Value` == "." 
+      is.na(xTable$`Code or Value`) <- xTable$`Code or Value` == "."
       factorLevels <- xTable$`Value Description`[!is.na(xTable$`Code or Value`)]
-      factorLevels <- factorLevels[as.numeric(as.character(xTable$Count[!is.na(xTable$`Code or Value`)])) > 0 ]                                           
+      factorLevels <- factorLevels[as.numeric(as.character(xTable$Count[!is.na(xTable$`Code or Value`)])) > 0 ]
       demoData[[xDoci]][[i+1]] <- factor(demoData[[xDoci]][[i+1]], labels = factorLevels)
       table(demoData[[xDoci]][[i+1]])
 
     }
     }
-  
+
   })
 return(FactTables)
 })
 
 ```
 
-I need to figure out how to add table names. The are stored as vector names in the data frames as their abbreviated names. Most folks get used to these after a while and know what they mean. I am not "most folks." 
+I need to figure out how to add table names. The are stored as vector names in the data frames as their abbreviated names. Most folks get used to these after a while and know what they mean. I am not "most folks."
 
 ```{r get names}
-VariableNamesList <- 
-  
+VariableNamesList <-
+
   lapply(seq_along(xDocs), function(xDoci){
-    
+
     xD = xDocs[[xDoci]]
     xDatNames <- demoData[[xDoci]] %>% names(.)
-    
+
    x <- XML::htmlParse(xD) %>%
      readHTMLList(.)
    xi <- which(sapply(x, length) == length(xDatNames))
-   
+
    #check all vars in name
-   checkVars <- 
-     sapply(seq_along(xDatNames), 
-          function(vi) grepl(xDatNames[[vi]], 
+   checkVars <-
+     sapply(seq_along(xDatNames),
+          function(vi) grepl(xDatNames[[vi]],
                              paste(x[[xi]], collapse = " "))) %>%
      all(.) &
    length(xDatNames) == length(x[[xi]])
@@ -209,7 +205,7 @@ VariableNamesList <-
 ```{r prep}
 factorTables <- lapply(seq_along(factorTables), function(i){
   factorTables[[i]][!sapply(factorTables[[i]], is.null)]
-}) 
+})
 
 names(factorTables) <- basename(localFiles)
 
@@ -242,4 +238,3 @@ pander::pander(factorTables[[2]][[4]])
     Panel content
   </div>
 </div>
-

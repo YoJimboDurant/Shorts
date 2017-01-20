@@ -94,11 +94,16 @@ idFiles <- grep("XPT", demoDataFiles[[2]][,4]) %>%
 
 #### Download the files
 
-The SAS XPT Files
+Download the SAS XPT Files
 ```{r downloadFiles}
-serverFiles <- gsub( " .*$", "", idFile$`Data File`) %>%
+serverFiles <- gsub( " .*$", "", idFiles[,"Data File"]) %>%
   paste0(., ".XPT") %>%
-  paste("https://wwwn.cdc.gov/Nchs/Nhanes", idFiles$Years, .,  sep="/")
+  paste("https://wwwn.cdc.gov/Nchs/Nhanes", idFiles$Year, .,  sep="/")
+
+destfile = sapply(serverFiles, function(x) paste(dataDir, basename(x),  sep="/"))
+
+serverFiles <- serverFiles[!file.exists(destfile)]
+destfiles <- destfiles[!file.exists(destfile)]
 
 
 if(Sys.info()['sysname'] !="Windows"){

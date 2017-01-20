@@ -1,0 +1,8 @@
+---
+title: Analyzing NHANES data using R - Download PCB153
+author: Jim Durant
+output:
+  knitrBootstrap::bootstrap_document:
+  theme.chooser: TRUE
+  highlight.chooser: TRUE
+---

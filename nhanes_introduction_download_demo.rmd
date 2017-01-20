@@ -49,7 +49,7 @@ library(dplyr)
 
 * [Demographics Variables and Sample Weights](https://wwwn.cdc.gov/nchs/nhanes/Search/DataPage.aspx?Component=Demographics) (almost always needed for any analysis)
 * [Dietary Interview](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Dietary)
-* [Labratory Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Laboratory)
+* [Labratory Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Laboratory) - [Example with PCB153](nhanes_download_chemical_pcb153.html)
 * [Questionaire Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Questionnaire)
 
 These files are stored as SAS XPORT files on CDC's internet site. R can be used to rapidly expedite the downloading of these files.

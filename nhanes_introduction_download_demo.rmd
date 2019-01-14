@@ -49,7 +49,7 @@ library(dplyr)
 
 * [Demographics Variables and Sample Weights](https://wwwn.cdc.gov/nchs/nhanes/Search/DataPage.aspx?Component=Demographics) (almost always needed for any analysis)
 * [Dietary Interview](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Dietary)
-* [Labratory Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Laboratory) - [Example with PCB153](nhanes_download_chemical_pcb153.html)
+* [Labratory Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Laboratory) - [Example with Arsenic from NHANES, march 2018](https://www.cdc.gov/exposurereport/pdf/FourthReport_UpdatedTables_Volume1_Mar2018.pdf)
 * [Questionaire Data](https://wwwn.cdc.gov/Nchs/Nhanes/Search/DataPage.aspx?Component=Questionnaire)
 
 These files are stored as SAS XPORT files on CDC's internet site. R can be used to rapidly expedite the downloading of these files.
@@ -64,15 +64,29 @@ These files are stored as SAS XPORT files on CDC's internet site. R can be used 
 
 #### Identify Files
 
+Demographic Files:
 ```{r id files}
 demoDataFiles <- read_lines("https://wwwn.cdc.gov/nchs/nhanes/Search/DataPage.aspx?Component=Demographics") %>%
   XML::htmlParse(.) %>%
-  XML::readHTMLTable(.)
+  XML::readHTMLTable(.) %$%
+  GridView1
 
-knitr::kable(demoDataFiles[[2]])
+knitr::kable(demoDataFiles)
 ```
 
-We would like to select all demographics surveys in this dataset and download to our local computer.
+Arsenic Laboratory Files:
+```{r labfiles}
+labDataFiles <- read_lines("https://wwwn.cdc.gov/nchs/nhanes/search/datapage.aspx?Component=Laboratory") %>%
+  XML::htmlParse(.) %>%
+  XML::readHTMLTable(.) %$%
+  GridView1%>%
+  filter(grepl("Arsenic", `Data File Name`))
+
+knitr::kable(labDataFiles$`Data File`)
+```
+
+
+We would like to select all demographics surveys and labratory data in this dataset and download to our local computer.
 
 First, make a directory:
 ```{r createDir}
@@ -87,13 +101,22 @@ dir.create(dataDir, showWarnings = FALSE, recursive = TRUE)
 </p>
 </div>
 
+Then we identify our files:
+
 ```{r idFiles}
-idFiles <- grep("XPT", demoDataFiles[[2]][,4]) %>%
-  demoDataFiles[[2]][.,] 
+idFiles <- suppressWarnings(
+    bind_rows(
+    filter(demoDataFiles, grepl("XPT", `Data File`)),
+    filter(labDataFiles, grepl("XPT", `Data File`))
+  )
+)
+
+
+  
   knitr::kable(idFiles)
 ```
 
-#### Download the files
+#### Download the demographics files
 
 Download the SAS XPT Files
 ```{r downloadFiles}
@@ -112,6 +135,10 @@ if(Sys.info()['sysname'] !="Windows"){
 } else {
   sapply(serverFiles, function(x) download.file(x, destfile = paste(dataDir, basename(x),  sep="/"), mode="wb"))
 }
+
+# download urine cratine for 2015-2016 sample
+
+download.file("https://wwwn.cdc.gov/Nchs/Nhanes/2015-2016/ALB_CR_I.XPT", destfile = paste(dataDir, "ALB_CR_I.XPT"))
 ```
 
 and the Documentation (we not only read these files, but since they are HTML we can extract the code books from them using R):
@@ -127,13 +154,31 @@ sapply(docFiles, function(x) download.file(x, destfile = paste(dataDir, basename
 ```
 
 
+# 
+
 ### Import the XPT Files and Decode using Data
 Next, we will make a list of files that we have downloaded. Then we will use `lapply` to create a  loop that will read these files using `read.xport` into a list of data frames that we named demoData.
 
 ```{r foreign Import}
-localFiles <- list.files(dataDir, pattern = "[.]XPT", full.names = TRUE)
+localFiles <- list.files(dataDir, pattern = "DEMO_?[A-Z]?[.]XPT", full.names = TRUE)
 demoData <- lapply(localFiles, function(x) foreign::read.xport(x))
-names(demoData) <- localFiles
+names(demoData) <- basename(localFiles)
+
+uasFiles <- list.files(dataDir, pattern = "UAS_?[A-Z]?[.]XPT", full.names = TRUE)
+uasData <- lapply(uasFiles, function(x) foreign::read.xport(x))
+names(uasData) <- basename(uasFiles)
+
+uassFiles <- list.files(dataDir, pattern = "UASS_?[A-Z]?[.]XPT", full.names = TRUE)
+uassData <- lapply(uassFiles, function(x) foreign::read.xport(x))
+names(uassData) <- basename(uassFiles)
+
+utasFiles <- list.files(dataDir, pattern = "UTAS_?[A-Z]?[.]XPT", full.names = TRUE)
+
+utasData <- lapply(utasFiles, function(x) foreign::read.xport(x))
+names(utasData) <- basename(utasFiles)
+
+
+
 ```
 
 I _HATE_ recoding variables in R.  So I create 2 loops. The first loop goes through each survey set. The second loop extracts the tables that have factor codes (NHANES documentation so far has consistently indicated continious ranges with number values separated by "to"). The function then refactors the variable with the appropriate code book names.
@@ -215,32 +260,19 @@ factorTables <- lapply(seq_along(factorTables), function(i){
 
 names(factorTables) <- basename(localFiles)
 
-pander::pander(factorTables[[2]][[4]])
+pander::pander(factorTables[[8]][[3]])
+
+pander::pander(factorTables[[8]][[4]])
+
 ```
+this agrees with documentation files.
 
 
-<div align="center" class="embed-responsive embed-responsive-16by9">
-<video autoplay loop class="embed-responsive-item">
-<source src=https://www.youtube.com/watch?v=gsX4I133Zmc type=video/mp4>
-</video>
-</div>
+# Save Data Files
 
+```{r save}
+write_rds(factorTables, path = "./data/nhanes/factorTables.rds")
+write_rds(demoData, path = "./data/nhanes/demo.rds")
+write_rds(utasData, path = "./data/nhanes/utas.rds")
 
-
-<div class="panel panel-danger">
-  <div class="panel-heading">
-  <h3 class="panel-title">Panel danger</h3>
-  </div>
-  <div class="panel-body">
-    Panel content
-  </div>
-</div>
-
-<div class="panel panel-info">
-  <div class="panel-heading">
-  <h3 class="panel-title">Panel info</h3>
-  </div>
-  <div class="panel-body">
-    Panel content
-  </div>
-</div>
+```

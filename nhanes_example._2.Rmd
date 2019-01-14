@@ -1,0 +1,80 @@
+---
+title: Analyzing NHANES data using R - Introduction and Downloading Demographic Data
+author: Jim Durant
+output:
+  knitrBootstrap::bootstrap_document:
+  theme.chooser: TRUE
+  highlight.chooser: TRUE
+---
+#NHANES Data Analysis: Arsenic Data#
+
+based on http://asdfree.com/national-health-and-nutrition-examination-survey-nhanes.html
+
+
+```{r libs, message= FALSE}
+options( survey.lonely.psu = "adjust" )
+
+library(survey)
+library(readr)
+library(tidyverse)
+
+demo <- read_rds(path = "./data/nhanes/demo.rds")
+factorTables <- read_rds(path ="./data/nhanes/factorTables.rds")
+utas <- read_rds(path ="./data/nhanes/utas.rds")
+creat <- foreign::read.xport("./data/nhanes/20190113 ALB_CR_I.XPT")
+
+
+# merge creatine
+
+utas$UTAS_I.XPT <- inner_join(utas$UTAS_I.XPT, creat)
+
+# merge demographic files
+
+
+demoNames <- names(demo)
+
+
+d <- which(gsub(".*_", "", names(demo)) %in% gsub(".*_", "", names(utas)))
+t <- which(gsub(".*_", "", names(utas)) %in% gsub(".*_", "", names(demo)))
+
+
+stopifnot(length(d)==length(t))
+
+demo_utas <- lapply(seq_along(1:length(d)), function(i){
+  print(i)
+  print(d[i])
+  print(t[i])
+  
+  dfx <- inner_join(demo[[d[i]]], utas[[t[i]]]) %>%
+    filter(WTSA2YR >0) %>%
+    mutate(asln = log(100 * URXUAS/URXUCR)) %>%
+    filter(!is.na(asln)) %>%
+    as.data.frame(.)
+  
+  svydesign(
+        id = ~SDMVPSU , 
+        strata = ~SDMVSTRA ,
+        nest = TRUE ,
+        weights = ~WTSA2YR ,
+        data = dfx
+  )
+})
+
+```
+
+
+
+```{r gm_all}
+exp(svymean(~asln, demo_utas[[1]]))
+exp(svymean(~asln, demo_utas[[2]]))
+```
+
+```{r hist}
+svyhist(~asln, demo_utas[[1]])
+svyhist(~asln, demo_utas[[2]])
+svyboxplot(asln ~ as.factor(RIAGENDR), demo_utas[[1]])
+
+svyboxplot(exp(asln) ~ as.factor(RIDRETH1), demo_utas[[1]], all.outliers = TRUE, log="y", ylim=c(0.1, 1000))
+
+
+```
